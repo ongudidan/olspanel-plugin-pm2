@@ -256,22 +256,65 @@ def gui_view(request):
 
 @loginadminoruser
 def install_pm2_view(request):
-    """API endpoint to trigger Node.js & PM2 system-wide installation"""
+    """Streams the installation output of Node.js and PM2 in real-time"""
     user = get_authenticated_user(request)
     if not user.is_superuser:
-        return JsonResponse({"status": "error", "message": "Admin privileges required"}, status=403)
+        return HttpResponse("Unauthorized", status=403)
 
     if request.method != 'POST':
-        return JsonResponse({"status": "error", "message": "POST required"}, status=400)
+        return HttpResponse("POST required", status=400)
 
-    try:
-        # Run package installation in the background/sync
-        # Set up NodeSource 20.x repo and install nodejs + pm2
-        cmd = "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm install -g pm2"
-        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return JsonResponse({"status": "success", "message": "Installation started in the background. Please reload the page in 1-2 minutes."})
-    except Exception as e:
-        return JsonResponse({"status": "error", "message": f"Installation failed: {str(e)}"}, status=500)
+    def stream_output():
+        yield "🔽 Initializing Node.js & PM2 system-wide installation...\n"
+        
+        # Check if node is already installed
+        node_installed = False
+        try:
+            node_res = subprocess.run(['node', '-v'], capture_output=True, text=True)
+            node_installed = (node_res.returncode == 0)
+        except Exception:
+            pass
+
+        if node_installed:
+            yield "🟢 Node.js is already installed on the server. Installing PM2 globally via npm...\n"
+            cmd = "npm install -g pm2"
+        else:
+            yield "🟡 Node.js is not detected. Setting up Node.js 20.x and PM2 globally...\n"
+            cmd = "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm install -g pm2"
+
+        yield f"🚀 Running command: {cmd}\n\n"
+        
+        process = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        try:
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    yield line
+            process.wait()
+            
+            if process.returncode == 0:
+                yield "\n✅ PM2 and Node.js are ready and installed successfully!\n"
+            else:
+                yield f"\n❌ Installation failed with exit code: {process.returncode}\n"
+        except Exception as e:
+            yield f"\n⚠️ Error during installation: {str(e)}\n"
+        finally:
+            try:
+                process.terminate()
+                process.wait()
+            except Exception:
+                pass
+            
+        yield "\n🎉 Done! Please reload the page to start deploying apps.\n"
+
+    return StreamingHttpResponse(stream_output(), content_type='text/plain')
 
 
 @loginadminoruser
