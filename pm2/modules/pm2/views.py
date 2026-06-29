@@ -394,6 +394,76 @@ def create_app_view(request):
     if not os.path.exists(app_path):
         return JsonResponse({"status": "error", "message": f"App Directory does not exist on disk: {app_path}"}, status=400)
 
+    # Check if the script file exists inside the app directory. If not, and it's a JS file, write a default dummy hello-world app.
+    script_file_path = os.path.join(app_path, script_path)
+    if not script_path.startswith('npm ') and not os.path.exists(script_file_path):
+        try:
+            dummy_code = f"""const http = require('http');
+const port = process.env.PORT || {port};
+
+const server = http.createServer((req, res) => {{
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.end(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Node.js & PM2 Hello World</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                background: #f8fafc;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+            }}
+            .card {{
+                background: #fff;
+                padding: 40px;
+                border-radius: 12px;
+                box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
+                text-align: center;
+                max-width: 480px;
+                border: 1px solid #e2e8f0;
+            }}
+            h1 {{ color: #16a34a; font-size: 1.8rem; margin-top: 0; }}
+            p {{ color: #64748b; font-size: 1rem; line-height: 1.6; }}
+            .badge {{
+                background: #f0fdf4;
+                color: #16a34a;
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                display: inline-block;
+                margin-top: 10px;
+                border: 1px solid #bbf7d0;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🟢 Node.js & PM2 Online</h1>
+            <p>Your application <strong>{app_name}</strong> is running successfully under PM2 process manager on port <strong>{port}</strong>.</p>
+            <span class="badge">OpenLiteSpeed Reverse Proxy Configured</span>
+        </div>
+    </body>
+    </html>
+  `);
+}});
+
+server.listen(port, () => {{
+  console.log(`Server running on port ${{port}}`);
+}});
+"""
+            with open(script_file_path, 'w', encoding='utf-8') as f:
+                f.write(dummy_code)
+            subprocess.run(['chown', f"{username}:{username}", script_file_path])
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": f"Failed to create dummy startup script: {str(e)}"}, status=500)
+
     # Parse and write environment variables to local .env file in the app directory
     env_vars = {}
     if env_vars_str:
@@ -666,6 +736,77 @@ def add_app_view(request):
         if not os.path.exists(app_path):
             messages.error(request, f"App Directory does not exist on disk: {app_path}")
             return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Check if the script file exists inside the app directory. If not, and it's a JS file, write a default dummy hello-world app.
+        script_file_path = os.path.join(app_path, script_path)
+        if not script_path.startswith('npm ') and not os.path.exists(script_file_path):
+            try:
+                dummy_code = f"""const http = require('http');
+const port = process.env.PORT || {port};
+
+const server = http.createServer((req, res) => {{
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.end(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Node.js & PM2 Hello World</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                background: #f8fafc;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+            }}
+            .card {{
+                background: #fff;
+                padding: 40px;
+                border-radius: 12px;
+                box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
+                text-align: center;
+                max-width: 480px;
+                border: 1px solid #e2e8f0;
+            }}
+            h1 {{ color: #16a34a; font-size: 1.8rem; margin-top: 0; }}
+            p {{ color: #64748b; font-size: 1rem; line-height: 1.6; }}
+            .badge {{
+                background: #f0fdf4;
+                color: #16a34a;
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                display: inline-block;
+                margin-top: 10px;
+                border: 1px solid #bbf7d0;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🟢 Node.js & PM2 Online</h1>
+            <p>Your application <strong>{app_name}</strong> is running successfully under PM2 process manager on port <strong>{port}</strong>.</p>
+            <span class="badge">OpenLiteSpeed Reverse Proxy Configured</span>
+        </div>
+    </body>
+    </html>
+  `);
+}});
+
+server.listen(port, () => {{
+  console.log(`Server running on port ${{port}}`);
+}});
+"""
+                with open(script_file_path, 'w', encoding='utf-8') as f:
+                    f.write(dummy_code)
+                subprocess.run(['chown', f"{username}:{username}", script_file_path])
+            except Exception as e:
+                messages.error(request, f"Failed to create dummy startup script: {str(e)}")
+                return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
 
         # Parse and write environment variables to local .env file in the app directory
         env_vars = {}
