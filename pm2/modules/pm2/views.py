@@ -527,23 +527,39 @@ def action_view(request, app_id):
     # Fetch app
     with connection.cursor() as cursor:
         if user.is_superuser or is_admin:
-            cursor.execute("SELECT id, name, domain_id, app_path, port FROM pm2_apps WHERE id = %s", [app_id])
+            cursor.execute("SELECT id, name, domain_id, app_path, port, script_path FROM pm2_apps WHERE id = %s", [app_id])
         else:
-            cursor.execute("SELECT id, name, domain_id, app_path, port FROM pm2_apps WHERE id = %s AND userid_id = %s", [app_id, user.id])
+            cursor.execute("SELECT id, name, domain_id, app_path, port, script_path FROM pm2_apps WHERE id = %s AND userid_id = %s", [app_id, user.id])
         row = cursor.fetchone()
 
     if not row:
         return JsonResponse({"status": "error", "message": "Application not found"}, status=404)
 
-    app_id_db, app_name, domain_id, app_path, port = row
+    app_id_db, app_name, domain_id, app_path, port, script_path = row
     username = get_app_user_owner(domain_id) if domain_id else 'nobody'
 
     if action == 'stop':
         res = run_pm2_cmd(username, ['stop', app_name])
     elif action == 'start':
         res = run_pm2_cmd(username, ['start', app_name])
+        if res.returncode != 0:
+            # Fallback to starting by script path if process is not found in PM2 daemon memory
+            if script_path.startswith('npm '):
+                npm_args = script_path.split(' ')[1:]
+                pm2_cmd = ['start', 'npm', '--name', app_name, '--'] + npm_args
+            else:
+                pm2_cmd = ['start', script_path, '--name', app_name]
+            res = run_pm2_cmd(username, pm2_cmd, cwd=app_path)
     elif action == 'restart':
         res = run_pm2_cmd(username, ['restart', app_name])
+        if res.returncode != 0:
+            # Fallback to starting if restart fails due to process not found
+            if script_path.startswith('npm '):
+                npm_args = script_path.split(' ')[1:]
+                pm2_cmd = ['start', 'npm', '--name', app_name, '--'] + npm_args
+            else:
+                pm2_cmd = ['start', script_path, '--name', app_name]
+            res = run_pm2_cmd(username, pm2_cmd, cwd=app_path)
     elif action == 'delete':
         # Remove proxy context from OLS if configured
         domain = Domain.objects.filter(id=domain_id).first() if domain_id else None
