@@ -299,7 +299,26 @@ def install_pm2_view(request):
                     yield line
             process.wait()
             
+            # Dynamically locate and symlink pm2 if not globally available
             if process.returncode == 0:
+                if not os.path.exists("/usr/local/bin/pm2"):
+                    found_symlink = False
+                    for root_dir, dirs, files in os.walk("/usr/local/olspanel/bin/"):
+                        if "pm2" in files and root_dir.endswith("/bin"):
+                            local_pm2 = os.path.join(root_dir, "pm2")
+                            subprocess.run(["ln", "-sf", local_pm2, "/usr/local/bin/pm2"])
+                            subprocess.run(["ln", "-sf", os.path.join(root_dir, "pm2-runtime"), "/usr/local/bin/pm2-runtime"])
+                            yield f"🔗 Dynamic symlink created for pm2: /usr/local/bin/pm2\n"
+                            found_symlink = True
+                            break
+                    if not found_symlink:
+                        # Try standard global path checks
+                        for path_dir in ["/usr/local/olspanel/bin/nodejs/24/bin/pm2", "/usr/local/olspanel/bin/nodejs/20/bin/pm2"]:
+                            if os.path.exists(path_dir):
+                                subprocess.run(["ln", "-sf", path_dir, "/usr/local/bin/pm2"])
+                                yield f"🔗 Symlink created: /usr/local/bin/pm2\n"
+                                break
+
                 yield "\n✅ PM2 and Node.js are ready and installed successfully!\n"
             else:
                 yield f"\n❌ Installation failed with exit code: {process.returncode}\n"
