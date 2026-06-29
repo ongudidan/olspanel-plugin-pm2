@@ -155,9 +155,19 @@ def gui_view(request):
     
     # Fetch domains
     if user.is_superuser or is_admin:
-        domains = Domain.objects.all().order_by('domain')
+        domains_qs = Domain.objects.all().order_by('domain')
     else:
-        domains = Domain.objects.filter(userid=user.id).order_by('domain')
+        domains_qs = Domain.objects.filter(userid=user.id).order_by('domain')
+        
+    domains = []
+    for d in domains_qs:
+        username = get_app_user_owner(d.id)
+        domains.append({
+            'id': d.id,
+            'domain': d.domain,
+            'username': username,
+            'doc_root': f"/home/{username}/{d.domain}"
+        })
         
     # Fetch tracked PM2 apps
     with connection.cursor() as cursor:

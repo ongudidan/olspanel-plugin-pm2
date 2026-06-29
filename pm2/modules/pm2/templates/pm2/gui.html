@@ -202,7 +202,7 @@
                         <select name="domain_id" id="hiddenDomainSelect" required style="display: none;">
                             <option value="" disabled selected>-- Choose a domain --</option>
                             {% for dom in domains %}
-                                <option value="{{ dom.id }}">{{ dom.domain }}</option>
+                                <option value="{{ dom.id }}" data-path="{{ dom.doc_root }}">{{ dom.domain }}</option>
                             {% endfor %}
                         </select>
                         
@@ -218,7 +218,7 @@
                             </div>
                             <div id="customSelectOptionsList" style="max-height: 150px; overflow-y: auto; padding: 4px;">
                                 {% for dom in domains %}
-                                    <div class="custom-select-option" data-value="{{ dom.id }}" onclick="selectCustomOption('{{ dom.id }}', '{{ dom.domain }}')" style="padding: 8px 12px; border-radius: 4px; font-size: 0.88rem; color: #334155; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='transparent';">
+                                    <div class="custom-select-option" data-value="{{ dom.id }}" data-path="{{ dom.doc_root }}" onclick="selectCustomOption('{{ dom.id }}', '{{ dom.domain }}', '{{ dom.doc_root }}')" style="padding: 8px 12px; border-radius: 4px; font-size: 0.88rem; color: #334155; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='transparent';">
                                         {{ dom.domain }}
                                     </div>
                                 {% endfor %}
@@ -520,12 +520,18 @@ function toggleCustomDropdown() {
     }
 }
 
-function selectCustomOption(val, text) {
+function selectCustomOption(val, text, path) {
     document.getElementById('hiddenDomainSelect').value = val;
     const label = document.getElementById('customSelectLabel');
     label.textContent = text;
     label.style.color = '#1e293b';
     label.style.fontWeight = '500';
+    
+    // Autofill the App Directory path input field
+    const appPathInput = document.querySelector('input[name="app_path"]');
+    if (appPathInput && path) {
+        appPathInput.value = path;
+    }
     
     toggleCustomDropdown();
     
