@@ -362,11 +362,17 @@
 </style>
 
 <script>
-// Install Node/PM2 helper
+// Install Node/PM2 helper with live logs streaming
 function installPM2(button) {
     const originalText = button.innerHTML;
     button.disabled = true;
     button.innerHTML = '<img src="/media/loading.gif" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;" /> Installing...';
+    
+    document.getElementById('logsDrawerTitle').textContent = "Installing Node.js & PM2";
+    const consoleDiv = document.getElementById('logsStreamTerminal');
+    consoleDiv.innerHTML = "Initializing package installer stream...\n";
+    
+    openModal('logsDrawerModal');
     
     const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
     
@@ -376,19 +382,37 @@ function installPM2(button) {
             "X-CSRFToken": csrfToken
         }
     })
-    .then(res => res.json())
-    .then(data => {
-        if(data.status === "success") {
-            alert(data.message);
-            location.reload();
-        } else {
-            alert("Error: " + data.message);
-            button.disabled = false;
-            button.innerHTML = originalText;
+    .then(res => {
+        const reader = res.body.getReader();
+        window.logsStreamReader = reader;
+        const decoder = new TextDecoder("utf-8");
+        consoleDiv.innerHTML = "";
+        
+        function readChunk() {
+            reader.read().then(({done, value}) => {
+                if (done) {
+                    consoleDiv.innerHTML += "\n[Installation Stream Completed]\n";
+                    consoleDiv.innerHTML += "\n🔄 Reloading dashboard in 3 seconds to apply changes...";
+                    setTimeout(() => {
+                        location.reload();
+                    }, 3000);
+                    return;
+                }
+                const chunk = decoder.decode(value, {stream: true});
+                consoleDiv.innerHTML += chunk;
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+                readChunk();
+            }).catch(err => {
+                consoleDiv.innerHTML += "\n[Stream Disconnected]";
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
         }
+        
+        readChunk();
     })
     .catch(err => {
-        alert("Server connection issue initiating install.");
+        consoleDiv.innerHTML = "\nFailed to connect to installation endpoint.";
         button.disabled = false;
         button.innerHTML = originalText;
     });
