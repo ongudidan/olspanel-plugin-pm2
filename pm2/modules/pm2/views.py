@@ -875,3 +875,95 @@ server.listen(port, () => {{
         return redirect('pm2_gui')
 
     return render(request, 'pm2/add.html', {'domains': domains})
+
+
+@loginadminoruser
+def stats_view(request):
+    """API endpoint to return live PM2 stats for all tracked apps as JSON"""
+    user = get_authenticated_user(request)
+    is_admin = hasattr(request, 'admin_user') and request.admin_user
+
+    # Fetch tracked PM2 apps
+    with connection.cursor() as cursor:
+        if user.is_superuser or is_admin:
+            cursor.execute("""
+                SELECT pa.id, d.domain, pa.name, pa.app_path, pa.script_path, pa.port, pa.created_at
+                FROM pm2_apps pa
+                LEFT JOIN domain d ON pa.domain_id = d.id
+            """)
+        else:
+            cursor.execute("""
+                SELECT pa.id, d.domain, pa.name, pa.app_path, pa.script_path, pa.port, pa.created_at
+                FROM pm2_apps pa
+                LEFT JOIN domain d ON pa.domain_id = d.id
+                WHERE pa.userid_id = %s
+            """, [user.id])
+            
+        columns = [col[0] for col in cursor.description]
+        tracked_apps = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    pm2_online = False
+    try:
+        pm2_res = subprocess.run(['pm2', '-v'], capture_output=True, text=True)
+        pm2_online = (pm2_res.returncode == 0)
+    except Exception:
+        pass
+
+    apps_data = {}
+    for app in tracked_apps:
+        app_id = app['id']
+        apps_data[app_id] = {
+            'status': 'offline',
+            'pid': '-',
+            'cpu': '0%',
+            'memory': '0 MB',
+            'uptime': '-',
+            'restarts': '0'
+        }
+        
+        if pm2_online:
+            try:
+                owner = get_app_user_owner(Domain.objects.filter(domain=app['domain']).first().id if app['domain'] else Domain.objects.all().first().id)
+                jlist_res = run_pm2_cmd(owner, ['jlist'])
+                if jlist_res.returncode == 0:
+                    pm2_list = json.loads(jlist_res.stdout)
+                    for pm2_proc in pm2_list:
+                        if pm2_proc.get('name') == app['name']:
+                            pm_status = pm2_proc.get('pm2_env', {})
+                            monit = pm2_proc.get('monit', {})
+                            
+                            status = pm_status.get('status', 'offline')
+                            pid = pm2_proc.get('pid', '-')
+                            cpu = f"{monit.get('cpu', 0)}%"
+                            
+                            # Convert memory bytes to MB
+                            mem_bytes = monit.get('memory', 0)
+                            memory = f"{round(mem_bytes / (1024 * 1024), 1)} MB"
+                            
+                            restarts = pm_status.get('restart_time', '0')
+                            
+                            # Calculate uptime
+                            uptime = '-'
+                            uptime_ms = pm_status.get('pm_uptime', 0)
+                            if uptime_ms > 0:
+                                diff_secs = int((datetime.now().timestamp() * 1000 - uptime_ms) / 1000)
+                                if diff_secs < 60:
+                                    uptime = f"{diff_secs}s"
+                                elif diff_secs < 3600:
+                                    uptime = f"{diff_secs // 60}m"
+                                else:
+                                    uptime = f"{diff_secs // 3600}h"
+                            
+                            apps_data[app_id] = {
+                                'status': status,
+                                'pid': pid,
+                                'cpu': cpu,
+                                'memory': memory,
+                                'uptime': uptime,
+                                'restarts': restarts
+                            }
+            except Exception:
+                pass
+
+    return JsonResponse({"status": "success", "apps": apps_data})
+

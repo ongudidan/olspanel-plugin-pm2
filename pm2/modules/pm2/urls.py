@@ -9,4 +9,5 @@ urlpatterns = [
     path('action/<int:app_id>/', views.action_view, name='pm2_action'),
     path('env/<int:app_id>/', views.save_env_view, name='pm2_env'),
     path('logs/<str:app_name>/', views.logs_view, name='pm2_logs'),
+    path('stats/', views.stats_view, name='pm2_stats'),
 ]

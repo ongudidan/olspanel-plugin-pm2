@@ -94,7 +94,7 @@
                 </div>
                 
                 <!-- Status Badge -->
-                <div>
+                <div id="status-container-{{ app.id }}">
                     {% if app.status == 'online' %}
                         <span class="badge-status badge-online" style="background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;"><span class="dot-blink" style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>online</span>
                     {% elif app.status == 'stopped' %}
@@ -111,23 +111,23 @@
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; background: #f8fafc; border-radius: 4px; padding: 12px; border: 1px solid #f1f5f9;">
                 <div>
                     <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">PID</span>
-                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.pid }}</span>
+                    <span id="pid-{{ app.id }}" style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.pid }}</span>
                 </div>
                 <div>
                     <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">CPU Usage</span>
-                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.cpu }}</span>
+                    <span id="cpu-{{ app.id }}" style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.cpu }}</span>
                 </div>
                 <div>
                     <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">Memory (RAM)</span>
-                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.memory }}</span>
+                    <span id="memory-{{ app.id }}" style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.memory }}</span>
                 </div>
                 <div>
                     <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">Uptime</span>
-                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.uptime }}</span>
+                    <span id="uptime-{{ app.id }}" style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.uptime }}</span>
                 </div>
                 <div>
                     <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">Restarts</span>
-                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.restarts }}</span>
+                    <span id="restarts-{{ app.id }}" style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.restarts }}</span>
                 </div>
             </div>
 
@@ -155,15 +155,17 @@
                     <button onclick="openLogsDrawer('{{ app.name }}')" class="btn btn-outline-secondary btn-sm" style="text-transform: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
                         📄 View Logs
                     </button>
-                    {% if app.status == 'online' %}
-                    <button onclick="triggerAction({{ app.id }}, 'stop', this)" class="btn btn-warning btn-sm" style="text-transform: none; border-radius: 4px;">
-                        Stop Process
-                    </button>
-                    {% else %}
-                    <button onclick="triggerAction({{ app.id }}, 'start', this)" class="btn btn-success btn-sm" style="text-transform: none; border-radius: 4px;">
-                        Start Process
-                    </button>
-                    {% endif %}
+                    <span id="start-stop-container-{{ app.id }}">
+                        {% if app.status == 'online' %}
+                        <button onclick="triggerAction({{ app.id }}, 'stop', this)" class="btn btn-warning btn-sm" style="text-transform: none; border-radius: 4px;">
+                            Stop Process
+                        </button>
+                        {% else %}
+                        <button onclick="triggerAction({{ app.id }}, 'start', this)" class="btn btn-success btn-sm" style="text-transform: none; border-radius: 4px;">
+                            Start Process
+                        </button>
+                        {% endif %}
+                    </span>
                     <button onclick="triggerAction({{ app.id }}, 'restart', this)" class="btn btn-primary btn-sm" style="text-transform: none; border-radius: 4px;">
                         Restart
                     </button>
@@ -346,11 +348,67 @@ function installPM2(button) {
     });
 }
 
+// Live Stats Polling
+function pollAppStats() {
+    fetch("{% url 'pm2_stats' %}")
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "success") {
+            for (const [appId, stats] of Object.entries(data.apps)) {
+                const pidEl = document.getElementById(`pid-${appId}`);
+                if (pidEl) pidEl.textContent = stats.pid;
+
+                const cpuEl = document.getElementById(`cpu-${appId}`);
+                if (cpuEl) cpuEl.textContent = stats.cpu;
+
+                const memEl = document.getElementById(`memory-${appId}`);
+                if (memEl) memEl.textContent = stats.memory;
+
+                const uptimeEl = document.getElementById(`uptime-${appId}`);
+                if (uptimeEl) uptimeEl.textContent = stats.uptime;
+
+                const restartsEl = document.getElementById(`restarts-${appId}`);
+                if (restartsEl) restartsEl.textContent = stats.restarts;
+
+                const statusContainer = document.getElementById(`status-container-${appId}`);
+                if (statusContainer) {
+                    let badgeHtml = "";
+                    if (stats.status === "online") {
+                        badgeHtml = `<span class="badge-status badge-online" style="background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;"><span class="dot-blink" style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>online</span>`;
+                    } else if (stats.status === "stopped") {
+                        badgeHtml = `<span style="background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px;">stopped</span>`;
+                    } else if (stats.status === "errored") {
+                        badgeHtml = `<span class="badge-status badge-errored" style="background: #fee2e2; color: #b91c1c; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;"><span class="dot-pulse" style="width: 6px; height: 6px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>errored</span>`;
+                    } else {
+                        badgeHtml = `<span style="background: #fef3c7; color: #d97706; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px;">${stats.status}</span>`;
+                    }
+                    statusContainer.innerHTML = badgeHtml;
+                }
+
+                const btnContainer = document.getElementById(`start-stop-container-${appId}`);
+                if (btnContainer) {
+                    if (stats.status === "online") {
+                        btnContainer.innerHTML = `<button onclick="triggerAction(${appId}, 'stop', this)" class="btn btn-warning btn-sm" style="text-transform: none; border-radius: 4px;">Stop Process</button>`;
+                    } else {
+                        btnContainer.innerHTML = `<button onclick="triggerAction(${appId}, 'start', this)" class="btn btn-success btn-sm" style="text-transform: none; border-radius: 4px;">Start Process</button>`;
+                    }
+                }
+            }
+        }
+    })
+    .catch(err => console.error("Error polling PM2 stats:", err));
+}
+
+// Start polling every 5 seconds on load
+document.addEventListener("DOMContentLoaded", () => {
+    setInterval(pollAppStats, 5000);
+});
+
 // Action Trigger
 function triggerAction(appId, action, button) {
     const originalText = button.innerHTML;
     button.disabled = true;
-    button.innerHTML = '...';
+    button.innerHTML = '<img src="/media/loading.gif" style="width: 12px; height: 12px; vertical-align: middle;" />';
     
     const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
     
@@ -363,7 +421,9 @@ function triggerAction(appId, action, button) {
     .then(res => res.json())
     .then(data => {
         if(data.status === "success") {
-            location.reload();
+            pollAppStats();
+            button.disabled = false;
+            button.innerHTML = originalText;
         } else {
             alert("Error: " + data.message);
             button.disabled = false;
