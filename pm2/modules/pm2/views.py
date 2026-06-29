@@ -707,19 +707,19 @@ def add_app_view(request):
             'id': d.id,
             'domain': d.domain,
             'username': username,
-            'doc_root': f"/home/{username}/{d.domain}"
+            'doc_root': d.path  # Use actual domain vhost path!
         })
 
     if request.method == 'POST':
         domain_id = request.POST.get('domain_id')
         app_name = request.POST.get('name', '').strip().lower()
-        app_path = request.POST.get('app_path', '').strip()
+        app_path_raw = request.POST.get('app_path', '').strip()
         script_path = request.POST.get('script_path', '').strip()
         env_vars_str = request.POST.get('env_variables', '').strip()
         auto_proxy = request.POST.get('auto_proxy') == 'true' or request.POST.get('auto_proxy') == 'on'
 
         # Validations
-        if not app_name or not app_path or not script_path:
+        if not app_name or not app_path_raw or not script_path:
             messages.error(request, "App Name, Directory, and Startup Script are required")
             return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
 
@@ -735,6 +735,15 @@ def add_app_view(request):
             else:
                 domain = get_object_or_404(Domain, id=domain_id, userid=user.id)
 
+        # Determine site user owner
+        username = get_app_user_owner(domain.id) if domain else 'nobody'
+
+        # Resolve target absolute path under /home/{username}/
+        clean_app_path = app_path_raw.strip('/')
+        if clean_app_path.startswith(f"home/{username}"):
+            clean_app_path = clean_app_path[len(f"home/{username}"):].strip('/')
+        app_path = os.path.join(f'/home/{username}', clean_app_path)
+
         # Verify app name uniqueness
         with connection.cursor() as cursor:
             cursor.execute("SELECT id FROM pm2_apps WHERE name = %s", [app_name])
@@ -745,13 +754,18 @@ def add_app_view(request):
         # Find a free port for this app
         port = find_next_free_port()
 
-        # Determine site user owner
-        username = get_app_user_owner(domain.id) if domain else 'nobody'
-
-        # Ensure app directory exists and belongs to the site user
-        if not os.path.exists(app_path):
-            messages.error(request, f"App Directory does not exist on disk: {app_path}")
+        # Ensure target directory exists (auto-create under /home/{username} for scalability)
+        if not app_path.startswith(f'/home/{username}'):
+            messages.error(request, "Invalid directory path. Must be under your home directory.")
             return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        if not os.path.exists(app_path):
+            try:
+                os.makedirs(app_path, exist_ok=True)
+                subprocess.run(['chown', '-R', f"{username}:{username}", app_path])
+            except Exception as e:
+                messages.error(request, f"Failed to create directory {app_path}: {str(e)}")
+                return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
 
         # Check if the script file exists inside the app directory. If not, and it's a JS file, write a default dummy hello-world app.
         script_file_path = os.path.join(app_path, script_path)

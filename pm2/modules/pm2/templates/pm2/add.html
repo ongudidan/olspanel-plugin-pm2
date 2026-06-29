@@ -61,13 +61,13 @@
 
             <!-- App Directory Path -->
             <div class="col-md-6 mb-4">
-                <label class="small mb-2" style="font-weight: 600; color: #374151;" for="app_path">App Directory (Absolute Path):</label>
+                <label class="small mb-2" style="font-weight: 600; color: #374151;" for="app_path">App Directory Path (under User Home):</label>
                 <div class="input-group">
                     <div class="input-group-prepend">
-                        <div class="input-group-text" style="background: #f8fafc; border-color: #cbd5e1;"><span class="mdi mdi-home"></span></div>
+                        <span class="input-group-text" id="homePrefixLabel" style="background: #f8fafc; border-color: #cbd5e1; font-weight: 600; color: #475569; font-family: monospace;">/home/</span>
                     </div>
                     <input type="text" id="app_path" name="app_path" class="form-control" style="border-color: #cbd5e1;"
-                           placeholder="e.g. /home/username/public_html" required
+                           placeholder="e.g. public_html" required
                            value="{{ form_data.app_path|default:'' }}">
                 </div>
             </div>
@@ -137,10 +137,18 @@ function selectCustomOption(val, text, path) {
     label.style.color = '#1e293b';
     label.style.fontWeight = '500';
     
-    // Autofill App Path
+    // Autofill App Path with home prefix separation
     const appPathInput = document.getElementById('app_path');
+    const prefixLabel = document.getElementById('homePrefixLabel');
     if (appPathInput && path) {
-        appPathInput.value = path;
+        const match = path.match(/^(\/home\/[^\/]+\/)(.*)$/);
+        if (match) {
+            if (prefixLabel) prefixLabel.textContent = match[1];
+            appPathInput.value = match[2];
+        } else {
+            if (prefixLabel) prefixLabel.textContent = '/home/';
+            appPathInput.value = path;
+        }
     }
     
     toggleCustomDropdown();
@@ -186,13 +194,22 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// If form was re-rendered with validation error, select previous domain
+// Select domain on load
 document.addEventListener('DOMContentLoaded', () => {
     const val = document.getElementById('hiddenDomainSelect').value;
     if (val) {
         const opt = document.querySelector(`.custom-select-option[data-value="${val}"]`);
         if (opt) {
             selectCustomOption(val, opt.textContent.trim(), opt.getAttribute('data-path'));
+        }
+    } else {
+        const firstOpt = document.querySelector('.custom-select-option');
+        if (firstOpt) {
+            selectCustomOption(
+                firstOpt.getAttribute('data-value'),
+                firstOpt.textContent.trim(),
+                firstOpt.getAttribute('data-path')
+            );
         }
     }
 });
