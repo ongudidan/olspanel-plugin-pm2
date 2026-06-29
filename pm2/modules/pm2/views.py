@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import json
 import socket
 import subprocess
@@ -9,8 +10,47 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.db import connection
 from django.contrib.auth import get_user_model
 from django.contrib import messages
+from django.core.cache import cache
 from users.models import Domain
 from users.decorators import loginadminoruser
+
+# Global in-memory fallback cache to avoid duplicate PM2 calls from multiple concurrent threads
+_stats_local_cache = {}
+
+def get_pm2_list_for_user(username):
+    """Fetches PM2 jlist for a specific user with a 2-second cache to prevent CPU thrashing"""
+    now = time.time()
+    cache_key = f"pm2_jlist_{username}"
+    
+    try:
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return cached_data
+    except Exception:
+        pass
+        
+    if username in _stats_local_cache:
+        cached_val, timestamp = _stats_local_cache[username]
+        if now - timestamp < 2.0:
+            return cached_val
+
+    # Spawn PM2 command
+    res = run_pm2_cmd(username, ['jlist'])
+    pm2_list = []
+    if res.returncode == 0:
+        try:
+            pm2_list = json.loads(res.stdout)
+        except Exception:
+            pass
+            
+    try:
+        cache.set(cache_key, pm2_list, timeout=2)
+    except Exception:
+        pass
+        
+    _stats_local_cache[username] = (pm2_list, now)
+    return pm2_list
+
 
 User = get_user_model()
 VHOST_DIR = "/usr/local/lsws/conf/vhosts"
@@ -209,6 +249,7 @@ def gui_view(request):
         pass
 
     # Map real-time process metadata from PM2
+    owner_pm2_data = {}
     for app in tracked_apps:
         app['status'] = 'offline'
         app['pid'] = '-'
@@ -218,39 +259,40 @@ def gui_view(request):
         app['restarts'] = '0'
         
         if pm2_online:
-            # Query PM2 list for the app owner
-            owner = get_app_user_owner(Domain.objects.filter(domain=app['domain']).first().id if app['domain'] else Domain.objects.all().first().id)
-            jlist_res = run_pm2_cmd(owner, ['jlist'])
-            if jlist_res.returncode == 0:
-                try:
-                    pm2_list = json.loads(jlist_res.stdout)
-                    for pm2_proc in pm2_list:
-                        if pm2_proc.get('name') == app['name']:
-                            pm_status = pm2_proc.get('pm2_env', {})
-                            monit = pm2_proc.get('monit', {})
-                            
-                            app['status'] = pm_status.get('status', 'offline')
-                            app['pid'] = pm2_proc.get('pid', '-')
-                            app['cpu'] = f"{monit.get('cpu', 0)}%"
-                            
-                            # Convert memory bytes to MB
-                            mem_bytes = monit.get('memory', 0)
-                            app['memory'] = f"{round(mem_bytes / (1024 * 1024), 1)} MB"
-                            
-                            app['restarts'] = pm_status.get('restart_time', '0')
-                            
-                            # Calculate uptime
-                            uptime_ms = pm_status.get('pm_uptime', 0)
-                            if uptime_ms > 0:
-                                diff_secs = int((datetime.now().timestamp() * 1000 - uptime_ms) / 1000)
-                                if diff_secs < 60:
-                                    app['uptime'] = f"{diff_secs}s"
-                                elif diff_secs < 3600:
-                                    app['uptime'] = f"{diff_secs // 60}m"
-                                else:
-                                    app['uptime'] = f"{diff_secs // 3600}h"
-                except Exception:
-                    pass
+            try:
+                # Query PM2 list for the app owner
+                owner = get_app_user_owner(Domain.objects.filter(domain=app['domain']).first().id if app['domain'] else Domain.objects.all().first().id)
+                if owner not in owner_pm2_data:
+                    owner_pm2_data[owner] = get_pm2_list_for_user(owner)
+                
+                pm2_list = owner_pm2_data[owner]
+                for pm2_proc in pm2_list:
+                    if pm2_proc.get('name') == app['name']:
+                        pm_status = pm2_proc.get('pm2_env', {})
+                        monit = pm2_proc.get('monit', {})
+                        
+                        app['status'] = pm_status.get('status', 'offline')
+                        app['pid'] = pm2_proc.get('pid', '-')
+                        app['cpu'] = f"{monit.get('cpu', 0)}%"
+                        
+                        # Convert memory bytes to MB
+                        mem_bytes = monit.get('memory', 0)
+                        app['memory'] = f"{round(mem_bytes / (1024 * 1024), 1)} MB"
+                        
+                        app['restarts'] = pm_status.get('restart_time', '0')
+                        
+                        # Calculate uptime
+                        uptime_ms = pm_status.get('pm_uptime', 0)
+                        if uptime_ms > 0:
+                            diff_secs = int((datetime.now().timestamp() * 1000 - uptime_ms) / 1000)
+                            if diff_secs < 60:
+                                app['uptime'] = f"{diff_secs}s"
+                            elif diff_secs < 3600:
+                                app['uptime'] = f"{diff_secs // 60}m"
+                            else:
+                                app['uptime'] = f"{diff_secs // 3600}h"
+            except Exception:
+                pass
 
     base_template = 'whm/base.html' if is_admin else 'users/base.html'
 
@@ -924,6 +966,7 @@ def stats_view(request):
         pass
 
     apps_data = {}
+    owner_pm2_data = {}
     for app in tracked_apps:
         app_id = app['id']
         apps_data[app_id] = {
@@ -938,44 +981,45 @@ def stats_view(request):
         if pm2_online:
             try:
                 owner = get_app_user_owner(Domain.objects.filter(domain=app['domain']).first().id if app['domain'] else Domain.objects.all().first().id)
-                jlist_res = run_pm2_cmd(owner, ['jlist'])
-                if jlist_res.returncode == 0:
-                    pm2_list = json.loads(jlist_res.stdout)
-                    for pm2_proc in pm2_list:
-                        if pm2_proc.get('name') == app['name']:
-                            pm_status = pm2_proc.get('pm2_env', {})
-                            monit = pm2_proc.get('monit', {})
-                            
-                            status = pm_status.get('status', 'offline')
-                            pid = pm2_proc.get('pid', '-')
-                            cpu = f"{monit.get('cpu', 0)}%"
-                            
-                            # Convert memory bytes to MB
-                            mem_bytes = monit.get('memory', 0)
-                            memory = f"{round(mem_bytes / (1024 * 1024), 1)} MB"
-                            
-                            restarts = pm_status.get('restart_time', '0')
-                            
-                            # Calculate uptime
-                            uptime = '-'
-                            uptime_ms = pm_status.get('pm_uptime', 0)
-                            if uptime_ms > 0:
-                                diff_secs = int((datetime.now().timestamp() * 1000 - uptime_ms) / 1000)
-                                if diff_secs < 60:
-                                    uptime = f"{diff_secs}s"
-                                elif diff_secs < 3600:
-                                    uptime = f"{diff_secs // 60}m"
-                                else:
-                                    uptime = f"{diff_secs // 3600}h"
-                            
-                            apps_data[app_id] = {
-                                'status': status,
-                                'pid': pid,
-                                'cpu': cpu,
-                                'memory': memory,
-                                'uptime': uptime,
-                                'restarts': restarts
-                            }
+                if owner not in owner_pm2_data:
+                    owner_pm2_data[owner] = get_pm2_list_for_user(owner)
+                
+                pm2_list = owner_pm2_data[owner]
+                for pm2_proc in pm2_list:
+                    if pm2_proc.get('name') == app['name']:
+                        pm_status = pm2_proc.get('pm2_env', {})
+                        monit = pm2_proc.get('monit', {})
+                        
+                        status = pm_status.get('status', 'offline')
+                        pid = pm2_proc.get('pid', '-')
+                        cpu = f"{monit.get('cpu', 0)}%"
+                        
+                        # Convert memory bytes to MB
+                        mem_bytes = monit.get('memory', 0)
+                        memory = f"{round(mem_bytes / (1024 * 1024), 1)} MB"
+                        
+                        restarts = pm_status.get('restart_time', '0')
+                        
+                        # Calculate uptime
+                        uptime = '-'
+                        uptime_ms = pm_status.get('pm_uptime', 0)
+                        if uptime_ms > 0:
+                            diff_secs = int((datetime.now().timestamp() * 1000 - uptime_ms) / 1000)
+                            if diff_secs < 60:
+                                uptime = f"{diff_secs}s"
+                            elif diff_secs < 3600:
+                                uptime = f"{diff_secs // 60}m"
+                            else:
+                                uptime = f"{diff_secs // 3600}h"
+                        
+                        apps_data[app_id] = {
+                            'status': status,
+                            'pid': pid,
+                            'cpu': cpu,
+                            'memory': memory,
+                            'uptime': uptime,
+                            'restarts': restarts
+                        }
             except Exception:
                 pass
 
