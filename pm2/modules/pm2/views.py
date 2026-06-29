@@ -63,7 +63,7 @@ def find_next_free_port():
 
 def run_pm2_cmd(username, cmd, cwd=None):
     """Runs a PM2 command as the website's specific system user for security isolation"""
-    full_cmd = ['sudo', '-H', '-u', username, 'env', 'PATH=/usr/local/bin:/usr/bin:/bin:' + os.environ.get('PATH', '')] + cmd
+    full_cmd = ['sudo', '-H', '-u', username, 'env', 'PATH=/usr/local/bin:/usr/bin:/bin:' + os.environ.get('PATH', ''), 'pm2'] + cmd
     res = subprocess.run(full_cmd, capture_output=True, text=True, cwd=cwd)
     return res
 
