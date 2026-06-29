@@ -1,0 +1,678 @@
+{% extends base_template %}
+
+{% block title %}Node.js & PM2 Process Manager{% endblock title %}
+
+{% block content %}
+<div style="padding: 24px; font-family: 'Outfit', 'Inter', sans-serif; color: #1e293b; min-height: 100vh; background: #f8fafc;">
+
+    <!-- Top Navigation Header -->
+    <div style="background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border-radius: 4px; border: 1px solid rgba(226, 232, 240, 0.8); display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; margin-bottom: 24px; box-shadow: 0 4px 20px -2px rgba(148, 163, 184, 0.06);">
+        <div>
+            <h4 style="margin: 0; font-size: 1.3rem; font-weight: 700; background: linear-gradient(135deg, #1e293b 0%, #475569 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                PM2 & Node.js Manager
+            </h4>
+            <p style="margin: 4px 0 0; font-size: 0.85rem; color: #64748b;">
+                Deploy, monitor, and configure Node.js web applications using PM2 process isolation
+            </p>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            {% if not pm2_online and user.is_superuser %}
+            <button onclick="installPM2(this)" class="btn btn-pill btn-warning btn-sm" style="text-transform: none; display: inline-flex; align-items: center; gap: 6px;">
+                ⚡ Install Node & PM2
+            </button>
+            {% endif %}
+            <button onclick="openModal('addAppModal')" class="btn btn-pill btn-success btn-sm" style="text-transform: none; display: inline-flex; align-items: center; gap: 6px;" {% if not pm2_online %}disabled title="PM2 is not installed on the system"{% endif %}>
+                <span>+</span> Launch Application
+            </button>
+        </div>
+    </div>
+
+    <!-- Quick Server Stats Banner -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+        <!-- Node.js Version Status -->
+        <div style="background: #fff; border-radius: 4px; border: 1px solid #e2e8f0; padding: 16px; display: flex; align-items: center; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+            <div style="background: #f0fdf4; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #16a34a; font-size: 1.2rem; border: 1.5px solid #bbf7d0;">
+                🟢
+            </div>
+            <div>
+                <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block;">Node.js Status</span>
+                <span style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">{{ node_version }}</span>
+            </div>
+        </div>
+
+        <!-- PM2 Status -->
+        <div style="background: #fff; border-radius: 4px; border: 1px solid #e2e8f0; padding: 16px; display: flex; align-items: center; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+            <div style="background: {% if pm2_online %}#f0fdf4{% else %}#fef2f2{% endif %}; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: {% if pm2_online %}#16a34a{% else %}#dc2626{% endif %}; font-size: 1.2rem; border: 1.5px solid {% if pm2_online %}#bbf7d0{% else %}#fecaca{% endif %};">
+                ⚙️
+            </div>
+            <div>
+                <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block;">PM2 Process Manager</span>
+                <span style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">{% if pm2_online %}Online / Active{% else %}Offline / Not Found{% endif %}</span>
+            </div>
+        </div>
+
+        <!-- Managed Applications -->
+        <div style="background: #fff; border-radius: 4px; border: 1px solid #e2e8f0; padding: 16px; display: flex; align-items: center; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+            <div style="background: #f8fafc; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 1.2rem; border: 1.5px solid #e2e8f0;">
+                📦
+            </div>
+            <div>
+                <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block;">Managed Apps</span>
+                <span style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">{{ apps|length }} registered</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Process list -->
+    <h5 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; color: #334155;">Active Process List</h5>
+
+    {% if not apps %}
+    <div style="background: #fff; border-radius: 4px; border: 1.5px dashed #cbd5e1; padding: 60px 20px; text-align: center; color: #64748b;">
+        <span style="font-size: 3rem; display: block; margin-bottom: 16px;">⚡</span>
+        <h6 style="margin: 0 0 8px; font-size: 1rem; font-weight: 600; color: #334155;">No Node.js applications found</h6>
+        <p style="margin: 0; font-size: 0.85rem; color: #94a3b8; max-width: 400px; margin: 0 auto;">Launch a new Node.js web server. OLSPanel will automatically deploy PM2 to run the process and map the proxy routing.</p>
+    </div>
+    {% else %}
+    <div style="display: grid; grid-template-columns: 1fr; gap: 16px;">
+        {% for app in apps %}
+        <div class="process-card" style="background: #fff; border-radius: 4px; border: 1px solid #e2e8f0; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.01), 0 2px 4px -1px rgba(0,0,0,0.01); display: flex; flex-direction: column; gap: 16px; transition: all 0.3s ease;">
+            
+            <!-- Card Header -->
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <h6 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #1e293b;">
+                        {{ app.name }}
+                    </h6>
+                    {% if app.domain %}
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #3b82f6; background: rgba(59, 130, 246, 0.08); padding: 2px 8px; border-radius: 4px;">
+                        🔗 {{ app.domain }}
+                    </span>
+                    {% endif %}
+                    <code style="font-size: 0.75rem; color: #64748b; background: #f8fafc; padding: 2px 6px; border-radius: 4px;">
+                        Port: {{ app.port }}
+                    </code>
+                </div>
+                
+                <!-- Status Badge -->
+                <div>
+                    {% if app.status == 'online' %}
+                        <span class="badge-status badge-online" style="background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;"><span class="dot-blink" style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>online</span>
+                    {% elif app.status == 'stopped' %}
+                        <span style="background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px;">stopped</span>
+                    {% elif app.status == 'errored' %}
+                        <span class="badge-status badge-errored" style="background: #fee2e2; color: #b91c1c; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;"><span class="dot-pulse" style="width: 6px; height: 6px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>errored</span>
+                    {% else %}
+                        <span style="background: #fef3c7; color: #d97706; font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 4px;">{{ app.status }}</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Process metrics -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; background: #f8fafc; border-radius: 4px; padding: 12px; border: 1px solid #f1f5f9;">
+                <div>
+                    <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">PID</span>
+                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.pid }}</span>
+                </div>
+                <div>
+                    <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">CPU Usage</span>
+                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.cpu }}</span>
+                </div>
+                <div>
+                    <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">Memory (RAM)</span>
+                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.memory }}</span>
+                </div>
+                <div>
+                    <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">Uptime</span>
+                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.uptime }}</span>
+                </div>
+                <div>
+                    <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 2px;">Restarts</span>
+                    <span style="font-family: monospace; font-size: 0.9rem; font-weight: 600; color: #334155;">{{ app.restarts }}</span>
+                </div>
+            </div>
+
+            <!-- Path & Execution details -->
+            <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 6px;">
+                <div>
+                    <span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; margin-right: 6px;">Directory:</span>
+                    <code style="color: #334155; font-weight: 500; font-family: monospace;">{{ app.app_path }}</code>
+                </div>
+                <div>
+                    <span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; margin-right: 6px;">Startup Script:</span>
+                    <code style="color: #334155; font-weight: 500; font-family: monospace;">{{ app.script_path }}</code>
+                </div>
+            </div>
+
+            <!-- Action Trigger Button Footer -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; border-top: 1px solid #f1f5f9; padding-top: 12px; flex-wrap: wrap; gap: 12px;">
+                <button onclick="triggerDelete({{ app.id }}, '{{ app.name }}')" class="btn btn-outline-danger btn-sm" style="text-transform: none; border-radius: 4px;">
+                    Delete
+                </button>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button onclick="openEnvModal({{ app.id }}, '{{ app.name }}', `{{ app.env_variables|escapejs }}`)" class="btn btn-outline-secondary btn-sm" style="text-transform: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                        🔑 Environment (.env)
+                    </button>
+                    <button onclick="openLogsDrawer('{{ app.name }}')" class="btn btn-outline-secondary btn-sm" style="text-transform: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                        📄 View Logs
+                    </button>
+                    {% if app.status == 'online' %}
+                    <button onclick="triggerAction({{ app.id }}, 'stop', this)" class="btn btn-warning btn-sm" style="text-transform: none; border-radius: 4px;">
+                        Stop Process
+                    </button>
+                    {% else %}
+                    <button onclick="triggerAction({{ app.id }}, 'start', this)" class="btn btn-success btn-sm" style="text-transform: none; border-radius: 4px;">
+                        Start Process
+                    </button>
+                    {% endif %}
+                    <button onclick="triggerAction({{ app.id }}, 'restart', this)" class="btn btn-primary btn-sm" style="text-transform: none; border-radius: 4px;">
+                        Restart
+                    </button>
+                </div>
+            </div>
+
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Add Application Modal -->
+    <div id="addAppModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px;">
+        <div style="background: #fff; border-radius: 4px; max-width: 550px; width: 100%; border: 1px solid #e2e8f0; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); overflow: hidden; animation: modalIn 0.25s ease-out;">
+            
+            <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+                <h5 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Launch Node.js Application</h5>
+                <button onclick="closeModal('addAppModal')" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8;">×</button>
+            </div>
+
+            <form id="createAppForm" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;" onsubmit="submitCreateApp(event)">
+                {% csrf_token %}
+                <div id="createFormError" style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 12px; font-size: 0.85rem; color: #b91c1c; line-height: 1.4; text-align: left;"></div>
+                
+                <!-- App Name -->
+                <div>
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Application Name</label>
+                    <input type="text" name="name" required placeholder="e.g. my-node-api" style="width: 100%; height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b;">
+                    <small style="color: #94a3b8; font-size: 0.72rem; display: block; margin-top: 4px;">Lowercase alphanumeric characters, hyphens, and underscores only.</small>
+                </div>
+
+                <!-- Domain dropdown (custom select) -->
+                <div>
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Domain / Subdomain (OLS Proxy Target)</label>
+                    <div class="custom-select-container" id="domainSelectContainer" style="position: relative; width: 100%;">
+                        <select name="domain_id" id="hiddenDomainSelect" required style="display: none;">
+                            <option value="" disabled selected>-- Choose a domain --</option>
+                            {% for dom in domains %}
+                                <option value="{{ dom.id }}">{{ dom.domain }}</option>
+                            {% endfor %}
+                        </select>
+                        
+                        <div class="custom-select-trigger" onclick="toggleCustomDropdown()" style="display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; font-size: 0.9rem; color: #64748b; cursor: pointer; transition: all 0.2s; user-select: none;">
+                            <span id="customSelectLabel">-- Choose a domain --</span>
+                            <span style="font-size: 0.75rem; transition: transform 0.2s;" id="customSelectArrow">▼</span>
+                        </div>
+                        
+                        <div class="custom-select-dropdown" id="customSelectDropdown" style="display: none; position: absolute; top: 44px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); z-index: 2100; overflow: hidden;">
+                            <div style="padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
+                                <span style="color: #94a3b8; font-size: 0.9rem;">🔍</span>
+                                <input type="text" id="customSelectSearch" placeholder="Search domains..." oninput="filterCustomOptions()" style="width: 100%; border: none; outline: none; font-size: 0.9rem; color: #1e293b;">
+                            </div>
+                            <div id="customSelectOptionsList" style="max-height: 150px; overflow-y: auto; padding: 4px;">
+                                {% for dom in domains %}
+                                    <div class="custom-select-option" data-value="{{ dom.id }}" onclick="selectCustomOption('{{ dom.id }}', '{{ dom.domain }}')" style="padding: 8px 12px; border-radius: 4px; font-size: 0.88rem; color: #334155; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='transparent';">
+                                        {{ dom.domain }}
+                                    </div>
+                                {% endfor %}
+                                <div id="noDomainsFound" style="display: none; padding: 12px; text-align: center; color: #94a3b8; font-size: 0.85rem;">
+                                    No domains found
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- App Directory Path -->
+                <div>
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">App Directory (Absolute Path)</label>
+                    <input type="text" name="app_path" required placeholder="e.g. /home/username/public_html/api" style="width: 100%; height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b;">
+                </div>
+
+                <!-- Startup script path -->
+                <div>
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Startup Script / Command</label>
+                    <input type="text" name="script_path" required placeholder="e.g. app.js or npm run start" style="width: 100%; height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b;">
+                </div>
+
+                <!-- Environment variables -->
+                <div>
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Environment Variables (KEY=VALUE, one per line)</label>
+                    <textarea name="env_variables" placeholder="NODE_ENV=production&#10;MONGO_URI=mongodb://localhost:27017/db" style="width: 100%; height: 80px; padding: 8px 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b; font-family: monospace; resize: none;"></textarea>
+                </div>
+
+                <!-- Auto-proxy checkbox -->
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" name="auto_proxy" id="autoProxyCheckbox" checked style="width: 16px; height: 16px; cursor: pointer;">
+                        <label for="autoProxyCheckbox" style="font-size: 0.82rem; color: #475569; font-weight: 600; cursor: pointer; user-select: none;">
+                            Auto-configure OpenLiteSpeed Reverse Proxy
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Footer buttons -->
+                <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; display: flex; justify-content: flex-end; gap: 12px;">
+                    <button type="button" onclick="closeModal('addAppModal')" class="btn btn-sm" style="text-transform: none; background: #ffffff; border: 1px solid #cbd5e1; color: #475569; padding: 6px 16px; border-radius: 4px; cursor: pointer;" onmouseover="this.style.background='#f8fafc';" onmouseout="this.style.background='#ffffff';">Cancel</button>
+                    <button type="submit" id="btnConnectApp" class="btn btn-success btn-sm" style="text-transform: none;">Launch App</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Env Variables Modal -->
+    <div id="envVariablesModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px;">
+        <div style="background: #fff; border-radius: 4px; max-width: 500px; width: 100%; border: 1px solid #e2e8f0; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); overflow: hidden; animation: modalIn 0.25s ease-out;">
+            
+            <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+                <h5 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;" id="envModalTitle">Edit Environment variables</h5>
+                <button onclick="closeModal('envVariablesModal')" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8;">×</button>
+            </div>
+
+            <form id="editEnvForm" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;" onsubmit="submitSaveEnv(event)">
+                {% csrf_token %}
+                <input type="hidden" name="app_id" id="envAppId">
+                <div id="envFormError" style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 12px; font-size: 0.85rem; color: #b91c1c;"></div>
+
+                <div>
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Environment Variables (KEY=VALUE, one per line)</label>
+                    <textarea name="env_variables" id="envVariablesTextarea" style="width: 100%; height: 160px; padding: 10px 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b; font-family: monospace; resize: none;"></textarea>
+                    <small style="color: #94a3b8; font-size: 0.72rem; display: block; margin-top: 4px;">Applying edits will rewrite the app's `.env` file and restart the process automatically.</small>
+                </div>
+
+                <!-- Footer buttons -->
+                <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; display: flex; justify-content: flex-end; gap: 12px;">
+                    <button type="button" onclick="closeModal('envVariablesModal')" class="btn btn-sm" style="text-transform: none; background: #ffffff; border: 1px solid #cbd5e1; color: #475569; padding: 6px 16px; border-radius: 4px; cursor: pointer;" onmouseover="this.style.background='#f8fafc';" onmouseout="this.style.background='#ffffff';">Cancel</button>
+                    <button type="submit" id="btnSaveEnv" class="btn btn-primary btn-sm" style="text-transform: none;">Save & Restart</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Live Logs Console Drawer -->
+    <div id="logsDrawerModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: stretch; justify-content: flex-end;">
+        <div style="background: #fff; width: 100%; max-width: 650px; height: 100vh; max-height: 100vh; border-left: 1px solid #e2e8f0; box-shadow: -10px 0 25px -5px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden; animation: drawerIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            
+            <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
+                <div>
+                    <h5 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;" id="logsDrawerTitle">Real-Time PM2 Logs</h5>
+                    <p style="margin: 4px 0 0; font-size: 0.8rem; color: #64748b;">Live stdout and stderr logging stream</p>
+                </div>
+                <button onclick="closeModal('logsDrawerModal')" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8;" onmouseover="this.style.color='#1e293b';" onmouseout="this.style.color='#94a3b8'">×</button>
+            </div>
+
+            <div style="flex: 1; padding: 24px; background: #0f172a; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box;">
+                <div id="logsStreamTerminal" style="flex: 1; overflow-y: auto; font-family: 'Fira Code', 'Courier New', monospace; font-size: 0.82rem; color: #e2e8f0; line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin: 0; padding: 8px;">Waiting for log stream to initialize...</div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<style>
+@keyframes modalIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+}
+@keyframes drawerIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+.process-card:hover {
+    border-color: #cbd5e1 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 20px -3px rgba(0,0,0,0.03), 0 4px 6px -2px rgba(0,0,0,0.02) !important;
+}
+.badge-online {
+    animation: glowOnline 2s infinite alternate;
+}
+.badge-errored {
+    animation: glowErrored 1.5s infinite alternate;
+}
+@keyframes glowOnline {
+    from { box-shadow: 0 0 4px rgba(34, 197, 94, 0.1); }
+    to { box-shadow: 0 0 12px rgba(34, 197, 94, 0.3); }
+}
+@keyframes glowErrored {
+    from { box-shadow: 0 0 4px rgba(239, 68, 68, 0.1); }
+    to { box-shadow: 0 0 12px rgba(239, 68, 68, 0.35); }
+}
+.dot-blink {
+    animation: blink 1s infinite alternate;
+}
+.dot-pulse {
+    animation: pulse 1s infinite alternate;
+}
+@keyframes blink {
+    from { opacity: 0.3; }
+    to { opacity: 1; }
+}
+@keyframes pulse {
+    0% { transform: scale(0.9); }
+    100% { transform: scale(1.15); }
+}
+</style>
+
+<script>
+// Install Node/PM2 helper
+function installPM2(button) {
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<img src="/media/loading.gif" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;" /> Installing...';
+    
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+    
+    fetch("{% url 'pm2_install' %}", {
+        method: "POST",
+        headers: {
+            "X-CSRFToken": csrfToken
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert("Error: " + data.message);
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    })
+    .catch(err => {
+        alert("Server connection issue initiating install.");
+        button.disabled = false;
+        button.innerHTML = originalText;
+    });
+}
+
+// Action Trigger
+function triggerAction(appId, action, button) {
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '...';
+    
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+    
+    fetch(`/module/pm2/action/${appId}/?action=${action}`, {
+        method: "POST",
+        headers: {
+            "X-CSRFToken": csrfToken
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            location.reload();
+        } else {
+            alert("Error: " + data.message);
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    })
+    .catch(err => {
+        alert("Server connection issue.");
+        button.disabled = false;
+        button.innerHTML = originalText;
+    });
+}
+
+function triggerDelete(appId, appName) {
+    if(confirm(`Are you sure you want to delete and stop the application '${appName}'? This will remove OLS reverse proxy context rules and terminate the PM2 process.`)) {
+        const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        fetch(`/module/pm2/action/${appId}/?action=delete`, {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": csrfToken
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === "success") {
+                location.reload();
+            } else {
+                alert("Error deleting application: " + data.message);
+            }
+        });
+    }
+}
+
+// Modals toggling
+function openModal(id) {
+    document.getElementById(id).style.display = "flex";
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = "none";
+    if (id === 'logsDrawerModal' && window.logsStreamReader) {
+        window.logsStreamReader.cancel();
+        window.logsStreamReader = null;
+    }
+}
+
+// Custom Select Dropdown setup
+function toggleCustomDropdown() {
+    const dropdown = document.getElementById('customSelectDropdown');
+    const arrow = document.getElementById('customSelectArrow');
+    const trigger = document.querySelector('.custom-select-trigger');
+    
+    if (dropdown.style.display === 'none' || !dropdown.style.display) {
+        dropdown.style.display = 'block';
+        arrow.style.transform = 'rotate(180deg)';
+        trigger.style.borderColor = '#22c55e';
+        trigger.style.boxShadow = '0 0 0 3px rgba(34, 197, 150, 0.15)';
+        document.getElementById('customSelectSearch').focus();
+    } else {
+        dropdown.style.display = 'none';
+        arrow.style.transform = 'none';
+        trigger.style.borderColor = '#cbd5e1';
+        trigger.style.boxShadow = 'none';
+    }
+}
+
+function selectCustomOption(val, text) {
+    document.getElementById('hiddenDomainSelect').value = val;
+    const label = document.getElementById('customSelectLabel');
+    label.textContent = text;
+    label.style.color = '#1e293b';
+    label.style.fontWeight = '500';
+    
+    toggleCustomDropdown();
+    
+    const options = document.querySelectorAll('.custom-select-option');
+    options.forEach(opt => {
+        if (opt.getAttribute('data-value') === val) {
+            opt.style.background = 'rgba(34, 197, 94, 0.1)';
+            opt.style.color = '#15803d';
+            opt.style.fontWeight = '600';
+        } else {
+            opt.style.background = 'transparent';
+            opt.style.color = '#334155';
+            opt.style.fontWeight = 'normal';
+        }
+    });
+}
+
+function filterCustomOptions() {
+    const search = document.getElementById('customSelectSearch').value.toLowerCase();
+    const options = document.querySelectorAll('.custom-select-option');
+    let found = 0;
+    
+    options.forEach(opt => {
+        const text = opt.textContent.toLowerCase();
+        if (text.includes(search)) {
+            opt.style.display = 'block';
+            found++;
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+    
+    const noFound = document.getElementById('noDomainsFound');
+    noFound.style.display = (found === 0) ? 'block' : 'none';
+}
+
+document.addEventListener('click', function(e) {
+    const container = document.getElementById('domainSelectContainer');
+    const dropdown = document.getElementById('customSelectDropdown');
+    const arrow = document.getElementById('customSelectArrow');
+    const trigger = document.querySelector('.custom-select-trigger');
+    
+    if (container && !container.contains(e.target)) {
+        if (dropdown && dropdown.style.display === 'block') {
+            dropdown.style.display = 'none';
+            arrow.style.transform = 'none';
+            trigger.style.borderColor = '#cbd5e1';
+            trigger.style.boxShadow = 'none';
+        }
+    }
+});
+
+// Submit Create App Form
+function submitCreateApp(event) {
+    event.preventDefault();
+    const form = document.getElementById('createAppForm');
+    const errorBanner = document.getElementById('createFormError');
+    
+    errorBanner.style.display = 'none';
+    
+    // Validations
+    const domainId = document.getElementById('hiddenDomainSelect').value;
+    if(!domainId) {
+        errorBanner.textContent = "Please select a target OLS domain.";
+        errorBanner.style.display = 'block';
+        return;
+    }
+    
+    const name = form.querySelector('input[name="name"]').value.trim();
+    if(!/^[a-z0-9_-]+$/.test(name)) {
+        errorBanner.textContent = "App Name must contain only lowercase letters, numbers, hyphens, and underscores.";
+        errorBanner.style.display = 'block';
+        return;
+    }
+
+    const submitBtn = document.getElementById('btnConnectApp');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<img src="/media/loading.gif" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;" /> Launching...';
+
+    const formData = new FormData(form);
+    
+    fetch("{% url 'pm2_create' %}", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            location.reload();
+        } else {
+            errorBanner.textContent = data.message;
+            errorBanner.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    })
+    .catch(err => {
+        errorBanner.textContent = "Server error launching app. Please verify your paths.";
+        errorBanner.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalText;
+    });
+}
+
+// Env Variables Modal
+function openEnvModal(appId, appName, envVars) {
+    document.getElementById('envAppId').value = appId;
+    document.getElementById('envModalTitle').textContent = `Environment Config: ${appName}`;
+    document.getElementById('envVariablesTextarea').value = envVars;
+    document.getElementById('envFormError').style.display = 'none';
+    openModal('envVariablesModal');
+}
+
+function submitSaveEnv(event) {
+    event.preventDefault();
+    const form = document.getElementById('editEnvForm');
+    const appId = document.getElementById('envAppId').value;
+    const errorBanner = document.getElementById('envFormError');
+    
+    errorBanner.style.display = 'none';
+    
+    const submitBtn = document.getElementById('btnSaveEnv');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<img src="/media/loading.gif" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;" /> Saving...';
+
+    const formData = new FormData(form);
+    
+    fetch(`/module/pm2/env/${appId}/`, {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            location.reload();
+        } else {
+            errorBanner.textContent = data.message;
+            errorBanner.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    })
+    .catch(err => {
+        errorBanner.textContent = "Server error saving environment.";
+        errorBanner.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalText;
+    });
+}
+
+// Logs Stream console
+window.logsStreamReader = null;
+
+function openLogsDrawer(appName) {
+    document.getElementById('logsDrawerTitle').textContent = `PM2 Logs: ${appName}`;
+    const consoleDiv = document.getElementById('logsStreamTerminal');
+    consoleDiv.innerHTML = "Opening stream...";
+    
+    openModal('logsDrawerModal');
+    
+    fetch(`/module/pm2/logs/${appName}/`)
+    .then(res => {
+        const reader = res.body.getReader();
+        window.logsStreamReader = reader;
+        const decoder = new TextDecoder("utf-8");
+        consoleDiv.innerHTML = "";
+        
+        function readChunk() {
+            reader.read().then(({done, value}) => {
+                if (done) {
+                    consoleDiv.innerHTML += "\n[Stream Completed]";
+                    return;
+                }
+                const chunk = decoder.decode(value, {stream: true});
+                consoleDiv.innerHTML += chunk;
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+                readChunk();
+            }).catch(err => {
+                consoleDiv.innerHTML += "\n[Stream Disconnected]";
+            });
+        }
+        
+        readChunk();
+    })
+    .catch(err => {
+        consoleDiv.innerHTML = "Failed to connect to logs server.";
+    });
+}
+</script>
+{% endblock content %}
