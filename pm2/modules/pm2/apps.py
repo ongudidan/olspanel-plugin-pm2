@@ -46,6 +46,7 @@ class PM2Config(AppConfig):
                         if data.get('success'):
                             plugins = data.get('plugins', [])
                             existing_paths = {p.get('path') for p in plugins if p.get('path')}
+                            existing_names = {p.get('name', '').lower() for p in plugins}
 
                             modules_dir = "/usr/local/olspanel/mypanel/modules"
 
@@ -80,9 +81,11 @@ class PM2Config(AppConfig):
                                 for name in os.listdir(modules_dir):
                                     mod_path = os.path.join(modules_dir, name)
                                     if os.path.isdir(mod_path) and name not in ['.', '..', '__pycache__']:
-                                        if mod_path not in existing_paths:
-                                            meta = known_meta.get(name, {})
-                                            display_name = meta.get("name") or name.replace('_', ' ').replace('-', ' ').title()
+                                        meta = known_meta.get(name, {})
+                                        display_name = meta.get("name") or name.replace('_', ' ').replace('-', ' ').title()
+                                        
+                                        # Skip duplicates by path, name, or slug name
+                                        if mod_path not in existing_paths and display_name.lower() not in existing_names and name.lower() not in existing_names:
                                             category = meta.get("category") or "Terminal"
                                             url_val = meta.get("url") or ""
 
@@ -105,10 +108,13 @@ class PM2Config(AppConfig):
                                                 "url": url_val,
                                                 "path": mod_path,
                                                 "image": icon_path,
-                                                "pre_build_path": ""
+                                                "pre_build_path": "",
+                                                "is_installed": True,
+                                                "license_valid": True
                                             }
                                             plugins.append(custom_plugin)
                                             existing_paths.add(mod_path)
+                                            existing_names.add(display_name.lower())
 
                             data['plugins'] = plugins
                             data['count'] = len(plugins)
