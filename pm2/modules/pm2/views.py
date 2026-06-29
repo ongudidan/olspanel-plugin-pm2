@@ -248,7 +248,9 @@ def gui_view(request):
         'apps': tracked_apps,
         'node_version': node_version,
         'pm2_online': pm2_online,
-        'base_template': base_template
+        'base_template': base_template,
+        'user': user,
+        'is_admin': is_admin
     })
 
 
