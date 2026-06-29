@@ -375,6 +375,7 @@ function installPM2(button) {
     openModal('logsDrawerModal');
     
     const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+    let accumulatedLogs = "";
     
     fetch("{% url 'pm2_install' %}", {
         method: "POST",
@@ -383,6 +384,15 @@ function installPM2(button) {
         }
     })
     .then(res => {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            return res.json().then(data => {
+                consoleDiv.innerHTML = `⚠️ Backend Reload Pending:\n\n${data.message || JSON.stringify(data)}\n\nOLSPanel backend is currently reloading the updated code. Please wait 10 seconds and refresh this page.`;
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+        }
+
         const reader = res.body.getReader();
         window.logsStreamReader = reader;
         const decoder = new TextDecoder("utf-8");
@@ -392,13 +402,21 @@ function installPM2(button) {
             reader.read().then(({done, value}) => {
                 if (done) {
                     consoleDiv.innerHTML += "\n[Installation Stream Completed]\n";
-                    consoleDiv.innerHTML += "\n🔄 Reloading dashboard in 3 seconds to apply changes...";
-                    setTimeout(() => {
-                        location.reload();
-                    }, 3000);
+                    
+                    if (accumulatedLogs.includes("installed successfully")) {
+                        consoleDiv.innerHTML += "\n✅ Success! Reloading dashboard in 5 seconds to apply changes...";
+                        setTimeout(() => {
+                            location.reload();
+                        }, 5000);
+                    } else {
+                        consoleDiv.innerHTML += "\n❌ Installation failed. Please check the logs above for errors. The page will not auto-reload so you can inspect the output.";
+                        button.disabled = false;
+                        button.innerHTML = originalText;
+                    }
                     return;
                 }
                 const chunk = decoder.decode(value, {stream: true});
+                accumulatedLogs += chunk;
                 consoleDiv.innerHTML += chunk;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
                 readChunk();
