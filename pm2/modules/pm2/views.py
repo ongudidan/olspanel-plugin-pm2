@@ -611,6 +611,9 @@ def action_view(request, app_id):
         # Delete from PM2
         res = run_pm2_cmd(username, ['delete', app_name])
         
+        # Save process list state
+        run_pm2_cmd(username, ['save'])
+        
         # Delete from Database
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM pm2_apps WHERE id = %s", [app_id])
@@ -621,6 +624,9 @@ def action_view(request, app_id):
 
     if res.returncode != 0:
         return JsonResponse({"status": "error", "message": f"PM2 Action Error: {res.stderr or res.stdout}"}, status=500)
+
+    # Save PM2 process list state to persist across reboots
+    run_pm2_cmd(username, ['save'])
 
     return JsonResponse({"status": "success", "message": f"Application '{app_name}' action completed successfully"})
 
@@ -903,6 +909,12 @@ server.listen(port, () => {{
             messages.error(request, f"Failed to write .env file: {str(e)}")
             return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
 
+        # Configure systemd boot startup for this user
+        try:
+            subprocess.run(['/usr/local/bin/pm2', 'startup', 'systemd', '-u', username, '--hp', f'/home/{username}'], capture_output=True)
+        except Exception:
+            pass
+
         # Start the app under PM2 as the specific site user
         if script_path.startswith('npm '):
             npm_args = script_path.split(' ')[1:]
@@ -915,6 +927,9 @@ server.listen(port, () => {{
         if res.returncode != 0:
             messages.error(request, f"PM2 launch error: {res.stderr or res.stdout}")
             return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Save PM2 process list to persist across reboots
+        run_pm2_cmd(username, ['save'])
 
         # Save to Database
         with connection.cursor() as cursor:
