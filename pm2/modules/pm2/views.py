@@ -594,3 +594,126 @@ def logs_view(request, app_name):
             process.wait()
 
     return StreamingHttpResponse(log_stream(), content_type='text/plain')
+
+
+@loginadminoruser
+def add_app_view(request):
+    """Page to add and launch a new Node.js application under PM2"""
+    user = get_authenticated_user(request)
+    is_impersonating = False
+    if hasattr(request, 'admin_user') and request.admin_user:
+        if request.user and request.user.is_authenticated and request.user != request.admin_user:
+            is_impersonating = True
+            
+    is_admin = hasattr(request, 'admin_user') and request.admin_user and not is_impersonating
+    
+    # Fetch domains
+    if user.is_superuser or is_admin:
+        domains_qs = Domain.objects.all().order_by('domain')
+    else:
+        domains_qs = Domain.objects.filter(userid=user.id).order_by('domain')
+        
+    domains = []
+    for d in domains_qs:
+        username = get_app_user_owner(d.id)
+        domains.append({
+            'id': d.id,
+            'domain': d.domain,
+            'username': username,
+            'doc_root': f"/home/{username}/{d.domain}"
+        })
+
+    if request.method == 'POST':
+        domain_id = request.POST.get('domain_id')
+        app_name = request.POST.get('name', '').strip().lower()
+        app_path = request.POST.get('app_path', '').strip()
+        script_path = request.POST.get('script_path', '').strip()
+        env_vars_str = request.POST.get('env_variables', '').strip()
+        auto_proxy = request.POST.get('auto_proxy') == 'true' or request.POST.get('auto_proxy') == 'on'
+
+        # Validations
+        if not app_name or not app_path or not script_path:
+            messages.error(request, "App Name, Directory, and Startup Script are required")
+            return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        if not re.match(r'^[a-z0-9_-]+$', app_name):
+            messages.error(request, "App Name must contain only lowercase letters, numbers, hyphens, and underscores")
+            return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Validate domain ownership
+        domain = None
+        if domain_id:
+            if user.is_superuser or is_admin:
+                domain = get_object_or_404(Domain, id=domain_id)
+            else:
+                domain = get_object_or_404(Domain, id=domain_id, userid=user.id)
+
+        # Verify app name uniqueness
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM pm2_apps WHERE name = %s", [app_name])
+            if cursor.fetchone():
+                messages.error(request, "An app with this name is already registered")
+                return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Find a free port for this app
+        port = find_next_free_port()
+
+        # Determine site user owner
+        username = get_app_user_owner(domain.id) if domain else 'nobody'
+
+        # Ensure app directory exists and belongs to the site user
+        if not os.path.exists(app_path):
+            messages.error(request, f"App Directory does not exist on disk: {app_path}")
+            return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Parse and write environment variables to local .env file in the app directory
+        env_vars = {}
+        if env_vars_str:
+            for line in env_vars_str.split('\n'):
+                if '=' in line:
+                    k, v = line.split('=', 1)
+                    env_vars[k.strip()] = v.strip()
+
+        # Always inject target PORT
+        env_vars['PORT'] = str(port)
+
+        # Write .env file
+        env_file_path = os.path.join(app_path, '.env')
+        try:
+            with open(env_file_path, 'w', encoding='utf-8') as f:
+                for k, v in env_vars.items():
+                    f.write(f"{k}={v}\n")
+            # Set ownership of .env file
+            subprocess.run(['chown', f"{username}:{username}", env_file_path])
+        except Exception as e:
+            messages.error(request, f"Failed to write .env file: {str(e)}")
+            return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Start the app under PM2 as the specific site user
+        if script_path.startswith('npm '):
+            npm_args = script_path.split(' ')[1:]
+            pm2_cmd = ['start', 'npm', '--name', app_name, '--'] + npm_args
+        else:
+            pm2_cmd = ['start', script_path, '--name', app_name]
+
+        # Run the start command
+        res = run_pm2_cmd(username, pm2_cmd, cwd=app_path)
+        if res.returncode != 0:
+            messages.error(request, f"PM2 launch error: {res.stderr or res.stdout}")
+            return render(request, 'pm2/add.html', {'domains': domains, 'form_data': request.POST})
+
+        # Save to Database
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO pm2_apps (userid_id, domain_id, name, app_path, script_path, port, env_variables, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, [user.id, domain.id if domain else None, app_name, app_path, script_path, port, env_vars_str, datetime.now()])
+
+        # Auto-configure OpenLiteSpeed Proxy Context
+        if auto_proxy and domain:
+            add_ols_reverse_proxy(domain.domain, app_name, port)
+
+        messages.success(request, f"App '{app_name}' registered and launched successfully on port {port}!")
+        return redirect('pm2_gui')
+
+    return render(request, 'pm2/add.html', {'domains': domains})

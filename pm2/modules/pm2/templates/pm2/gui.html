@@ -21,9 +21,9 @@
                 ⚡ Install Node & PM2
             </button>
             {% endif %}
-            <button onclick="openModal('addAppModal')" class="btn btn-pill btn-success btn-sm" style="text-transform: none; display: inline-flex; align-items: center; gap: 6px;" {% if not pm2_online %}disabled title="PM2 is not installed on the system"{% endif %}>
+            <a href="{% url 'pm2_add' %}" class="btn btn-pill btn-success btn-sm" style="text-transform: none; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;" {% if not pm2_online %}disabled title="PM2 is not installed on the system"{% endif %}>
                 <span>+</span> Launch Application
-            </button>
+            </a>
         </div>
     </div>
 
@@ -175,97 +175,7 @@
     </div>
     {% endif %}
 
-    <!-- Add Application Modal -->
-    <div id="addAppModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px;">
-        <div style="background: #fff; border-radius: 4px; max-width: 550px; width: 100%; border: 1px solid #e2e8f0; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); overflow: hidden; animation: modalIn 0.25s ease-out;">
-            
-            <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
-                <h5 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Launch Node.js Application</h5>
-                <button onclick="closeModal('addAppModal')" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8;">×</button>
-            </div>
 
-            <form id="createAppForm" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;" onsubmit="submitCreateApp(event)">
-                {% csrf_token %}
-                <div id="createFormError" style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 12px; font-size: 0.85rem; color: #b91c1c; line-height: 1.4; text-align: left;"></div>
-                
-                <!-- App Name -->
-                <div>
-                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Application Name</label>
-                    <input type="text" name="name" required placeholder="e.g. my-node-api" style="width: 100%; height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b;">
-                    <small style="color: #94a3b8; font-size: 0.72rem; display: block; margin-top: 4px;">Lowercase alphanumeric characters, hyphens, and underscores only.</small>
-                </div>
-
-                <!-- Domain dropdown (custom select) -->
-                <div>
-                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Domain / Subdomain (OLS Proxy Target)</label>
-                    <div class="custom-select-container" id="domainSelectContainer" style="position: relative; width: 100%;">
-                        <select name="domain_id" id="hiddenDomainSelect" required style="display: none;">
-                            <option value="" disabled selected>-- Choose a domain --</option>
-                            {% for dom in domains %}
-                                <option value="{{ dom.id }}" data-path="{{ dom.doc_root }}">{{ dom.domain }}</option>
-                            {% endfor %}
-                        </select>
-                        
-                        <div class="custom-select-trigger" onclick="toggleCustomDropdown()" style="display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; font-size: 0.9rem; color: #64748b; cursor: pointer; transition: all 0.2s; user-select: none;">
-                            <span id="customSelectLabel">-- Choose a domain --</span>
-                            <span style="font-size: 0.75rem; transition: transform 0.2s;" id="customSelectArrow">▼</span>
-                        </div>
-                        
-                        <div class="custom-select-dropdown" id="customSelectDropdown" style="display: none; position: absolute; top: 44px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); z-index: 2100; overflow: hidden;">
-                            <div style="padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
-                                <span style="color: #94a3b8; font-size: 0.9rem;">🔍</span>
-                                <input type="text" id="customSelectSearch" placeholder="Search domains..." oninput="filterCustomOptions()" style="width: 100%; border: none; outline: none; font-size: 0.9rem; color: #1e293b;">
-                            </div>
-                            <div id="customSelectOptionsList" style="max-height: 150px; overflow-y: auto; padding: 4px;">
-                                {% for dom in domains %}
-                                    <div class="custom-select-option" data-value="{{ dom.id }}" data-path="{{ dom.doc_root }}" onclick="selectCustomOption('{{ dom.id }}', '{{ dom.domain }}', '{{ dom.doc_root }}')" style="padding: 8px 12px; border-radius: 4px; font-size: 0.88rem; color: #334155; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='transparent';">
-                                        {{ dom.domain }}
-                                    </div>
-                                {% endfor %}
-                                <div id="noDomainsFound" style="display: none; padding: 12px; text-align: center; color: #94a3b8; font-size: 0.85rem;">
-                                    No domains found
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- App Directory Path -->
-                <div>
-                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">App Directory (Absolute Path)</label>
-                    <input type="text" name="app_path" required placeholder="e.g. /home/username/public_html/api" style="width: 100%; height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b;">
-                </div>
-
-                <!-- Startup script path -->
-                <div>
-                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Startup Script / Command</label>
-                    <input type="text" name="script_path" required placeholder="e.g. app.js or npm run start" style="width: 100%; height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b;">
-                </div>
-
-                <!-- Environment variables -->
-                <div>
-                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px;">Environment Variables (KEY=VALUE, one per line)</label>
-                    <textarea name="env_variables" placeholder="NODE_ENV=production&#10;MONGO_URI=mongodb://localhost:27017/db" style="width: 100%; height: 80px; padding: 8px 12px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; color: #1e293b; font-family: monospace; resize: none;"></textarea>
-                </div>
-
-                <!-- Auto-proxy checkbox -->
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <input type="checkbox" name="auto_proxy" id="autoProxyCheckbox" checked style="width: 16px; height: 16px; cursor: pointer;">
-                        <label for="autoProxyCheckbox" style="font-size: 0.82rem; color: #475569; font-weight: 600; cursor: pointer; user-select: none;">
-                            Auto-configure OpenLiteSpeed Reverse Proxy
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Footer buttons -->
-                <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; display: flex; justify-content: flex-end; gap: 12px;">
-                    <button type="button" onclick="closeModal('addAppModal')" class="btn btn-sm" style="text-transform: none; background: #ffffff; border: 1px solid #cbd5e1; color: #475569; padding: 6px 16px; border-radius: 4px; cursor: pointer;" onmouseover="this.style.background='#f8fafc';" onmouseout="this.style.background='#ffffff';">Cancel</button>
-                    <button type="submit" id="btnConnectApp" class="btn btn-success btn-sm" style="text-transform: none;">Launch App</button>
-                </div>
-            </form>
-        </div>
-    </div>
 
     <!-- Env Variables Modal -->
     <div id="envVariablesModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px;">
@@ -500,142 +410,7 @@ function closeModal(id) {
     }
 }
 
-// Custom Select Dropdown setup
-function toggleCustomDropdown() {
-    const dropdown = document.getElementById('customSelectDropdown');
-    const arrow = document.getElementById('customSelectArrow');
-    const trigger = document.querySelector('.custom-select-trigger');
-    
-    if (dropdown.style.display === 'none' || !dropdown.style.display) {
-        dropdown.style.display = 'block';
-        arrow.style.transform = 'rotate(180deg)';
-        trigger.style.borderColor = '#22c55e';
-        trigger.style.boxShadow = '0 0 0 3px rgba(34, 197, 150, 0.15)';
-        document.getElementById('customSelectSearch').focus();
-    } else {
-        dropdown.style.display = 'none';
-        arrow.style.transform = 'none';
-        trigger.style.borderColor = '#cbd5e1';
-        trigger.style.boxShadow = 'none';
-    }
-}
 
-function selectCustomOption(val, text, path) {
-    document.getElementById('hiddenDomainSelect').value = val;
-    const label = document.getElementById('customSelectLabel');
-    label.textContent = text;
-    label.style.color = '#1e293b';
-    label.style.fontWeight = '500';
-    
-    // Autofill the App Directory path input field
-    const appPathInput = document.querySelector('input[name="app_path"]');
-    if (appPathInput && path) {
-        appPathInput.value = path;
-    }
-    
-    toggleCustomDropdown();
-    
-    const options = document.querySelectorAll('.custom-select-option');
-    options.forEach(opt => {
-        if (opt.getAttribute('data-value') === val) {
-            opt.style.background = 'rgba(34, 197, 94, 0.1)';
-            opt.style.color = '#15803d';
-            opt.style.fontWeight = '600';
-        } else {
-            opt.style.background = 'transparent';
-            opt.style.color = '#334155';
-            opt.style.fontWeight = 'normal';
-        }
-    });
-}
-
-function filterCustomOptions() {
-    const search = document.getElementById('customSelectSearch').value.toLowerCase();
-    const options = document.querySelectorAll('.custom-select-option');
-    let found = 0;
-    
-    options.forEach(opt => {
-        const text = opt.textContent.toLowerCase();
-        if (text.includes(search)) {
-            opt.style.display = 'block';
-            found++;
-        } else {
-            opt.style.display = 'none';
-        }
-    });
-    
-    const noFound = document.getElementById('noDomainsFound');
-    noFound.style.display = (found === 0) ? 'block' : 'none';
-}
-
-document.addEventListener('click', function(e) {
-    const container = document.getElementById('domainSelectContainer');
-    const dropdown = document.getElementById('customSelectDropdown');
-    const arrow = document.getElementById('customSelectArrow');
-    const trigger = document.querySelector('.custom-select-trigger');
-    
-    if (container && !container.contains(e.target)) {
-        if (dropdown && dropdown.style.display === 'block') {
-            dropdown.style.display = 'none';
-            arrow.style.transform = 'none';
-            trigger.style.borderColor = '#cbd5e1';
-            trigger.style.boxShadow = 'none';
-        }
-    }
-});
-
-// Submit Create App Form
-function submitCreateApp(event) {
-    event.preventDefault();
-    const form = document.getElementById('createAppForm');
-    const errorBanner = document.getElementById('createFormError');
-    
-    errorBanner.style.display = 'none';
-    
-    // Validations
-    const domainId = document.getElementById('hiddenDomainSelect').value;
-    if(!domainId) {
-        errorBanner.textContent = "Please select a target OLS domain.";
-        errorBanner.style.display = 'block';
-        return;
-    }
-    
-    const name = form.querySelector('input[name="name"]').value.trim();
-    if(!/^[a-z0-9_-]+$/.test(name)) {
-        errorBanner.textContent = "App Name must contain only lowercase letters, numbers, hyphens, and underscores.";
-        errorBanner.style.display = 'block';
-        return;
-    }
-
-    const submitBtn = document.getElementById('btnConnectApp');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<img src="/media/loading.gif" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;" /> Launching...';
-
-    const formData = new FormData(form);
-    
-    fetch("{% url 'pm2_create' %}", {
-        method: "POST",
-        body: formData
-    })
-    .then(res => res.json())
-    .then(data => {
-        if(data.status === "success") {
-            location.reload();
-        } else {
-            errorBanner.textContent = data.message;
-            errorBanner.style.display = 'block';
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalText;
-        }
-    })
-    .catch(err => {
-        errorBanner.textContent = "Server error launching app. Please verify your paths.";
-        errorBanner.style.display = 'block';
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalText;
-    });
-}
 
 // Env Variables Modal
 function openEnvModal(appId, appName, envVars) {
