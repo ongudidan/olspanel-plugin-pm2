@@ -333,7 +333,13 @@ def install_pm2_view(request):
             cmd = "npm install -g pm2"
         else:
             yield "🟡 Node.js is not detected. Setting up Node.js 20.x and PM2 globally...\n"
-            cmd = "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm install -g pm2"
+            import os
+            is_rhel = os.path.exists('/usr/bin/dnf') or os.path.exists('/usr/bin/yum') or os.path.exists('/usr/sbin/dnf')
+            if is_rhel:
+                pm_bin = "dnf" if os.path.exists('/usr/bin/dnf') or os.path.exists('/usr/sbin/dnf') else "yum"
+                cmd = f"curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && {pm_bin} install -y nodejs && npm install -g pm2"
+            else:
+                cmd = "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm install -g pm2"
 
         yield f"🚀 Running command: {cmd}\n\n"
         
